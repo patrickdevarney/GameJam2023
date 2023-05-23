@@ -1,7 +1,9 @@
 # GameJam2023
+* Implementation in **Assets/Navigation**
+
 ## Runtime:
 * Click on the plane. If a path exists, the shortest path is calculated. The capsule will cut corners by raycasting to attempt to skip unnecessary vertex visits.
-* Navigation "smoothing" can be toggled on the Player Component.
+* Navigation "smoothing" can be toggled on the Player Component for previewing scene gizmos showing the true stair-stepped path
 ![navSmoothed](https://github.com/patrickdevarney/GameJam2023/assets/11896025/0c4e5e0b-cb57-4811-8060-ddddf07e1c5d)
 
 ## Edit time:
