@@ -6,7 +6,9 @@ namespace Navigation
     [CustomEditor(typeof(NavManager))]
     public class NavManagerInspector : Editor
     {
+        public int testIterations = 1;
         NavManager targetManager;
+
         private void OnEnable()
         {
             targetManager = (NavManager)target;
@@ -17,15 +19,15 @@ namespace Navigation
             base.OnInspectorGUI();
             if (GUILayout.Button("Bake!"))
             {
-                targetManager.Bake();
+                NavBaker.Bake(targetManager.navData, targetManager.settings);
             }
             if (GUILayout.Button("Test random path"))
             {
-                targetManager.TestRandomPath();
+                NavManagerTests.TestRandomPaths(targetManager, testIterations);
             }
             if (GUILayout.Button("Test lots of paths"))
             {
-                targetManager.StartTest();
+                NavManagerTests.TestRandomPaths(targetManager, testIterations);
             }
         }
     }

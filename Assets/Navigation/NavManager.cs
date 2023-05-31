@@ -15,42 +15,11 @@ namespace Navigation
 
         public static NavManager Singleton;
 
-        // Store x,y int pair
-        public struct Coordinate
-        {
-            public int x;
-            public int y;
-
-            public Coordinate(int x, int y)
-            {
-                this.x = x;
-                this.y = y;
-            }
-
-            public static bool operator ==(Coordinate a, Coordinate b)
-            {
-                return a.x == b.x &&
-                    a.y == b.y;
-            }
-
-            public static bool operator !=(Coordinate a, Coordinate b)
-            {
-                return a.x != b.x ||
-                    a.y != b.y;
-            }
-
-            public override string ToString()
-            {
-                return $"({x},{y})";
-            }
-        }
-
         // During pathfinding, store data about each NavNode
         struct PathfindingNode
         {
             public bool hasBeenVisited;
             public int costToReach;
-            public Coordinate coordinate;
             // TODO: instead of storing coordinate, we could store a bit flag for NSWE. Reduce 8bytes to 4bits
             public Coordinate closestNodeToStart;
         }
@@ -64,7 +33,6 @@ namespace Navigation
             length = 10,
             distanceBetweenCells = 1
         };
-        public bool autoUpdate;
 
         [Header("Used at runtime")]
         public BakedNavData navData;
@@ -77,124 +45,14 @@ namespace Navigation
         // TODO: maybe we can wrap a request in a struct for storing additional data. Store (from,to) together
         private Coordinate currentDestinationRequest;
 
-        private void OnValidate()
-        {
-            if (!autoUpdate)
-            {
-                return;
-            }
-
-            if (navData == null)
-            {
-                return;
-            }
-
-            if (navData.settings != settings)
-            {
-                Bake();
-            }
-        }
-
         private void OnEnable()
         {
             Singleton = this;
         }
 
-        /// <summary>
-        /// Bakes and stores data in linked data asset
-        /// </summary>
-        [ContextMenu("Bake")]
-        public void Bake()
+        private void OnDisable()
         {
-            if (navData == null)
-            {
-                Debug.LogError("Bake aborted: no linked navData");
-                return;
-            }
-
-            var timer = new System.Diagnostics.Stopwatch();
-            // Copy the bake settings to the data object
-            navData.settings = settings;
-            // Create array of nodes
-            navData.nodes = new BakedNavData.NavNode[settings.width * settings.length];
-            // Customize each node (blockers, travel cost, etc)
-            NavBlocker[] blockers = FindObjectsByType<NavBlocker>(FindObjectsSortMode.None);
-            for (int i = 0; i < blockers.Length; i++)
-            {
-                if (!blockers[i].isStatic)
-                {
-                    continue;
-                }
-
-                // Find all nav points within bounds
-
-                Vector3 blockerCenter = blockers[i].Center;
-                Vector3 blockerExtents = blockers[i].extents;
-                // Find the lower-left corner (lowest x,z value in Unity space)
-                Vector3 lowerLeftCorner = blockerCenter - blockerExtents;
-                // Convert to grid position
-                Coordinate lowerLeftGridPosition = GetGridPositionFromWorldPosition(lowerLeftCorner);
-                // Convert world length/width to grid length/width
-                int blockerGridWidth = GetGridDistanceFromWorldDistance(blockers[i].extents.x * 2);
-                int blockerGridLength = GetGridDistanceFromWorldDistance(blockers[i].extents.z * 2);
-                // Loop through all grid points that are within this width/length starting at our lower-left corner
-                for (int x = 0; x < blockerGridWidth; x++)
-                {
-                    for (int y = 0; y < blockerGridLength; y++)
-                    {
-                        if (!navData.IsWithinGrid(lowerLeftGridPosition.x + x, lowerLeftGridPosition.y + y))
-                        {
-                            continue;
-                        }
-
-                        navData[lowerLeftGridPosition.x + x, lowerLeftGridPosition.y + y].isBlocked = true;
-                    }
-                }
-            }
-
-            // Save changes
-            UnityEditor.EditorUtility.SetDirty(navData);
-            timer.Stop();
-            Debug.Log($"Bake completed in {timer.ElapsedMilliseconds}ms");
-        }
-
-        public int testIterations = 1;
-        [ContextMenu("Test random path")]
-        public long TestRandomPath()
-        {
-            Coordinate from = new Coordinate
-            {
-                x = Random.Range(0, navData.settings.width),
-                y = Random.Range(0, navData.settings.length),
-            };
-
-            Coordinate to = new Coordinate
-            {
-                x = Random.Range(0, navData.settings.width),
-                y = Random.Range(0, navData.settings.length),
-            };
-
-            Vector3 worldFrom = GetWorldPositionFromGridPosition(from.x, from.y);
-            Vector3 worldTo = GetWorldPositionFromGridPosition(to.x, to.y);
-
-            var timer = new System.Diagnostics.Stopwatch();
-            timer.Start();
-            GetWorldPath(worldFrom, worldTo);
-            timer.Stop();
-            Debug.Log($"Time elapsed: {timer.ElapsedMilliseconds}ms");
-            return timer.ElapsedMilliseconds;
-        }
-
-        [ContextMenu("Test multiple paths")]
-        public void StartTest()
-        {
-            long totalElapsedMilliseconds = 0;
-            for (int i = 0; i < testIterations; i++)
-            {
-                long elapsedMilliseconds = TestRandomPath();
-                totalElapsedMilliseconds += elapsedMilliseconds;
-            }
-            Debug.Log($"Ran {testIterations} tests. Average test {totalElapsedMilliseconds / testIterations}ms");
+            Singleton = null;
         }
 
         public List<Vector3> GetWorldPath(Vector3 fromWorldPosition, Vector3 toWorldPosition)
@@ -202,8 +60,8 @@ namespace Navigation
             using (GetWorldPathPerfMarker.Auto())
             {
                 // Convert the requested positions into grid points
-                Coordinate fromGridPosition = GetGridPositionFromWorldPosition(fromWorldPosition);
-                Coordinate toGridPosition = GetGridPositionFromWorldPosition(toWorldPosition);
+                Coordinate fromGridPosition = navData.GetGridPositionFromWorldPosition(fromWorldPosition);
+                Coordinate toGridPosition = navData.GetGridPositionFromWorldPosition(toWorldPosition);
 
                 // Check bounds
                 if (!navData.IsWithinGrid(fromGridPosition))
@@ -228,9 +86,11 @@ namespace Navigation
                 }
 
                 // Find the path
-                GetPathPerfMarker.Begin();
-                var gridPath = GetPath(fromGridPosition, toGridPosition);
-                GetPathPerfMarker.End();
+                List<Coordinate> gridPath;
+                using (GetPathPerfMarker.Auto())
+                {
+                    gridPath = GetPath(fromGridPosition, toGridPosition);
+                }
 
                 if (gridPath == null)
                 {
@@ -242,7 +102,7 @@ namespace Navigation
                 List<Vector3> worldPath = new List<Vector3>(gridPath.Count);
                 for (int i = 0; i < gridPath.Count; i++)
                 {
-                    worldPath.Add(GetWorldPositionFromGridPosition((int)gridPath[i].x, (int)gridPath[i].y));
+                    worldPath.Add(navData.GetWorldPositionFromGridPosition((int)gridPath[i].x, (int)gridPath[i].y));
                 }
 
                 // Append the final world position so that we smoothly land on it
@@ -254,8 +114,6 @@ namespace Navigation
 
         List<Coordinate> GetPath(Coordinate from, Coordinate to)
         {
-            // As long as edges have uniform cost, A* should beat Dijkstra and still provide the shortest path
-
             // We have a 2D array of nodes
             // Elements can have neighbors north/south/east/west
             // Every edge has an equal travel cost
@@ -282,8 +140,6 @@ namespace Navigation
             while (sortedAvailableNodes.Count > 0)
             {
                 // Sort by known cost + shortest possible distance to finish
-
-                //sortedAvailableNodes.Sort((b, a) => nodes[a.x, a.y].costToReach.CompareTo(nodes[b.x, b.y].costToReach));
                 // Dequeue the last element (cheapest node to visit)
                 Coordinate currentCoordinate = sortedAvailableNodes[sortedAvailableNodes.Count - 1];
                 sortedAvailableNodes.RemoveAt(sortedAvailableNodes.Count - 1);
@@ -347,7 +203,6 @@ namespace Navigation
                     // Override data
                     childNode.costToReach = alternativeCostToGetHere;
                     childNode.closestNodeToStart = parentCoordinate;
-                    childNode.coordinate = childCoordinate;
                     // Store data
                     nodes[childCoordinate.x, childCoordinate.y] = childNode;
 
@@ -357,13 +212,13 @@ namespace Navigation
                         // Insert into the list sorted by distance to target
                         // Store destination to avoid closure
                         currentDestinationRequest = destination;
-                        sortedAvailableNodes.InsertIntoSortedList(childCoordinate, (a, b) => (DistanceBetween(b, currentDestinationRequest).CompareTo(DistanceBetween(a, currentDestinationRequest))));
+                        sortedAvailableNodes.InsertIntoSortedList(childCoordinate, (a, b) => (DistanceBetweenSquared(b, currentDestinationRequest).CompareTo(DistanceBetweenSquared(a, currentDestinationRequest))));
                     }
                 }
             }
         }
 
-        static int DistanceBetween(Coordinate a, Coordinate b)
+        static int DistanceBetweenSquared(Coordinate a, Coordinate b)
         {
             // Calculate "as the crow flies" distance
             int length = Mathf.Abs(a.x - b.x);
@@ -375,54 +230,13 @@ namespace Navigation
         static void BuildShortestPath(List<Coordinate> shortestPath, Coordinate destination, ref PathfindingNode[,] nodes)
         {
             Coordinate previousCoordinate = shortestPath[shortestPath.Count - 1];
-            // Check if we have reached our destination
-            if (previousCoordinate == destination)
+            while (previousCoordinate != destination)
             {
-                return;
+                // Find which node to go to
+                Coordinate nextNode = nodes[previousCoordinate.x, previousCoordinate.y].closestNodeToStart;
+                shortestPath.Add(nextNode);
+                previousCoordinate = nextNode;
             }
-
-            // Find which node to go to
-            Coordinate nextNode = nodes[previousCoordinate.x, previousCoordinate.y].closestNodeToStart;
-            shortestPath.Add(nextNode);
-            BuildShortestPath(shortestPath, destination, ref nodes);
-        }
-
-        int GetGridDistanceFromWorldDistance(float worldDistance)
-        {
-            // Scale
-            float scaledDistance = worldDistance / navData.settings.distanceBetweenCells;
-            // Snap float value to grid value
-            int gridDistance = (int)scaledDistance;
-            // Round up
-            gridDistance++;
-            return gridDistance;
-        }
-
-        Coordinate GetGridPositionFromWorldPosition(Vector3 worldPosition)
-        {
-            // Convert worldPosition to an offset from our nav origin
-            Vector3 worldOffset = worldPosition - navData.settings.origin;
-            // Scale to our grid size
-            Vector3 offsetFromGridCenter = worldOffset / navData.settings.distanceBetweenCells;
-            // Round float values in grid space to closest grid value
-            int xGridPosition = Mathf.RoundToInt(offsetFromGridCenter.x);
-            // Use z coordinate instead of y because Unity is y-up
-            int yGridPosition = Mathf.RoundToInt(offsetFromGridCenter.z);
-
-            Coordinate retVal = new Coordinate(xGridPosition, yGridPosition);
-            return retVal;
-        }
-
-        Vector3 GetWorldPositionFromGridPosition(int x, int y)
-        {
-            // Format
-            Vector3 gridPositionVector3 = new Vector3(x, 0, y);
-            // Scale up
-            Vector3 worldScalePosition = gridPositionVector3 * navData.settings.distanceBetweenCells;
-            // Offset
-            Vector3 retVal = worldScalePosition + navData.settings.origin;
-
-            return retVal;
         }
 
 #if UNITY_EDITOR
@@ -450,9 +264,9 @@ namespace Navigation
             if (gizmoCulling)
             {
                 // Draw points only within a certain zone around the camera
-                Coordinate cameraGridPosition = GetGridPositionFromWorldPosition(sceneCameraPosition);
+                Coordinate cameraGridPosition = navData.GetGridPositionFromWorldPosition(sceneCameraPosition);
                 // Draw gizmos in a square around this position
-                int width = GetGridDistanceFromWorldDistance(gizmoCullingDistance);
+                int width = navData.GetGridDistanceFromWorldDistance(gizmoCullingDistance);
                 int length = width;
                 int startingGridPositionX = Mathf.Clamp(cameraGridPosition.x - (width / 2), 0, navData.settings.width);
                 int startingGridPositionY = Mathf.Clamp(cameraGridPosition.y - (length / 2), 0, navData.settings.length);
@@ -478,7 +292,7 @@ namespace Navigation
 
         void DrawPoint(int x, int y, Vector3 gizmoScale)
         {
-            Vector3 worldPosition = GetWorldPositionFromGridPosition(x, y);
+            Vector3 worldPosition = navData.GetWorldPositionFromGridPosition(x, y);
             if (navData[x, y].isBlocked)
             {
                 Gizmos.color = Color.red;

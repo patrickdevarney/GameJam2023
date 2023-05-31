@@ -57,9 +57,47 @@ namespace Navigation
             }
         }
 
-        public bool IsWithinGrid(NavManager.Coordinate gridPosition)
+        public bool IsWithinGrid(Coordinate gridPosition)
         {
             return IsWithinGrid(gridPosition.x, gridPosition.y);
+        }
+
+        public Coordinate GetGridPositionFromWorldPosition(Vector3 worldPosition)
+        {
+            // Convert worldPosition to an offset from our nav origin
+            Vector3 worldOffset = worldPosition - settings.origin;
+            // Scale to our grid size
+            Vector3 offsetFromGridCenter = worldOffset / settings.distanceBetweenCells;
+            // Round float values in grid space to closest grid value
+            int xGridPosition = Mathf.RoundToInt(offsetFromGridCenter.x);
+            // Use z coordinate instead of y because Unity is y-up
+            int yGridPosition = Mathf.RoundToInt(offsetFromGridCenter.z);
+
+            Coordinate retVal = new Coordinate(xGridPosition, yGridPosition);
+            return retVal;
+        }
+
+        public Vector3 GetWorldPositionFromGridPosition(int x, int y)
+        {
+            // Format
+            Vector3 gridPositionVector3 = new Vector3(x, 0, y);
+            // Scale up
+            Vector3 worldScalePosition = gridPositionVector3 * settings.distanceBetweenCells;
+            // Offset
+            Vector3 retVal = worldScalePosition + settings.origin;
+
+            return retVal;
+        }
+
+        public int GetGridDistanceFromWorldDistance(float worldDistance)
+        {
+            // Scale
+            float scaledDistance = worldDistance / settings.distanceBetweenCells;
+            // Snap float value to grid value
+            int gridDistance = (int)scaledDistance;
+            // Round up
+            gridDistance++;
+            return gridDistance;
         }
     }
 }
